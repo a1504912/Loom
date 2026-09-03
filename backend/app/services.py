@@ -16,10 +16,12 @@ from sqlmodel import Session, select
 
 from .models import (
     Module,
+    Output,
     Project,
     ProjectSkill,
     ScoreEvent,
     Skill,
+    SocialAccount,
     Suggestion,
 )
 from .templates import modules_for_type
@@ -58,14 +60,20 @@ def trigger_matches(trigger_expr: str | None, score: int) -> bool:
     return _OPS[op](score, num)
 
 
+ADOPT_DEFAULT_BUMP = 24  # 沒有預估目標時,採用建議的預設健康度增幅
+
+
+def _predicted_after(before: int) -> int:
+    """由當下分數推估採用後的目標分數(補救型拉到門檻之上一截)。"""
+    return min(100, max(before + 20, 85))
+
+
 def _render_effect(skill: Skill, before: int | None = None) -> str:
     """把 predicted_effect 樣板裡的 {before}/{after} 填成當下分數。"""
     text = skill.predicted_effect or ""
     if before is None or "{before}" not in text:
         return text
-    # 用預期效果推估目標:high 風險通常是補救型,拉到門檻之上一截
-    after = min(100, max(before + 20, 85))
-    return text.format(before=before, after=after)
+    return text.format(before=before, after=_predicted_after(before))
 
 
 def _has_open_or_active(
@@ -97,7 +105,12 @@ def _has_open_or_active(
 # --------------------------------------------------------------------------- #
 
 def create_project(
-    session: Session, name: str, project_type: str, tags: list[str]
+    session: Session,
+    name: str,
+    project_type: str,
+    tags: list[str],
+    category: str = "",
+    cat_key: str = "other",
 ) -> Project:
     """依 type 樣板建立 modules,並對每個 module 做靜態配對產生 suggestions。"""
     project = Project(
@@ -105,6 +118,10 @@ def create_project(
         type=project_type,
         tags=json.dumps(tags, ensure_ascii=False),
         status="building",
+        category=category or "其他",
+        cat_key=cat_key,
+        stage="dev",
+        trend="[]",
     )
     session.add(project)
     session.commit()
@@ -191,6 +208,7 @@ def update_score(
                 source="score_trigger",
                 reason=skill.reason_template,
                 predicted_effect=_render_effect(skill, before=value),
+                predicted_score=_predicted_after(value),
                 conflict_group=skill.conflict_group,
                 status="pending",
             )
@@ -245,6 +263,18 @@ def adopt_suggestion(session: Session, suggestion_id: int) -> ProjectSkill:
 
     suggestion.status = "adopted"
     session.add(suggestion)
+
+    # 採用建議會提升該模組健康度:優先用建議的預估目標,否則用預設增幅。
+    module = session.get(Module, suggestion.module_id)
+    if module is not None:
+        if suggestion.predicted_score is not None:
+            target = max(module.score, suggestion.predicted_score)
+        else:
+            target = module.score + ADOPT_DEFAULT_BUMP
+        module.score = max(0, min(100, target))
+        session.add(ScoreEvent(module_id=module.id, value=module.score, signal_speed="internal"))
+        session.add(module)
+
     session.commit()
 
     _recompute_module_status(session, suggestion.module_id)
@@ -287,3 +317,90 @@ def _recompute_module_status(session: Session, module_id: int) -> None:
         module.status = "active"
     session.add(module)
     session.commit()
+
+
+# --------------------------------------------------------------------------- #
+# 模組設定:執行模型 / 主要任務                                                 #
+# --------------------------------------------------------------------------- #
+
+def set_module_model(session: Session, module_id: int, model_key: str) -> Module:
+    module = session.get(Module, module_id)
+    if module is None:
+        raise ValueError(f"module {module_id} not found")
+    module.model_key = model_key
+    session.add(module)
+    session.commit()
+    session.refresh(module)
+    return module
+
+
+def set_module_task(
+    session: Session, module_id: int, task: str, task_note: str | None = None
+) -> Module:
+    module = session.get(Module, module_id)
+    if module is None:
+        raise ValueError(f"module {module_id} not found")
+    module.task = task
+    if task_note is not None:
+        module.task_note = task_note
+    session.add(module)
+    session.commit()
+    session.refresh(module)
+    return module
+
+
+# --------------------------------------------------------------------------- #
+# 完成結果審核                                                                  #
+# --------------------------------------------------------------------------- #
+
+def review_output(session: Session, output_id: int, decision: str) -> Output:
+    """核可(done)或退回(rejected)一筆產出。"""
+    output = session.get(Output, output_id)
+    if output is None:
+        raise ValueError(f"output {output_id} not found")
+    if decision not in {"approve", "reject"}:
+        raise ValueError("decision 必須是 approve 或 reject")
+    output.state = "done" if decision == "approve" else "rejected"
+    session.add(output)
+    session.commit()
+    session.refresh(output)
+    return output
+
+
+# --------------------------------------------------------------------------- #
+# 社群通路與帳號                                                                #
+# --------------------------------------------------------------------------- #
+
+def toggle_channel(session: Session, module_id: int, channel: str) -> Module:
+    """開/關一個社群通路。開 → 建一筆未辦理帳號;關 → 移除該筆。"""
+    module = session.get(Module, module_id)
+    if module is None:
+        raise ValueError(f"module {module_id} not found")
+    existing = session.exec(
+        select(SocialAccount).where(
+            SocialAccount.module_id == module_id,
+            SocialAccount.channel == channel,
+        )
+    ).first()
+    if existing:
+        session.delete(existing)
+    else:
+        session.add(
+            SocialAccount(module_id=module_id, channel=channel, state="none", handle="—")
+        )
+    session.commit()
+    return module
+
+
+def apply_account(session: Session, account_id: int, project_name: str) -> SocialAccount:
+    """開始辦理某通路帳號:狀態改 applying,handle 帶入案名。"""
+    account = session.get(SocialAccount, account_id)
+    if account is None:
+        raise ValueError(f"account {account_id} not found")
+    account.state = "applying"
+    handle = "@" + "".join((project_name or "atelier").split())
+    account.handle = handle
+    session.add(account)
+    session.commit()
+    session.refresh(account)
+    return account

@@ -51,15 +51,35 @@ PYTHONPATH=. pytest -q
 `tests/test_walkthrough.py` 逐步驗證記帳 app 走查:四模組 → 靜態配對 → 採用 →
 資安層健康度 58 觸發高風險建議「加密儲存」→ 採用後衝突建議自動略過、資安層回到待命。
 
+## 看板 UI(Industry design system)
+
+前端看板依設計交接包重建,套用 Industry 鋼藍藍圖風格(`frontend/src/industry.css`
+為設計 token 與元件層來源):
+
+- **左欄**:深色場,分類篩選 + 「執行中 · 開發階段」/「維護中 · 優化階段」兩組案子。
+- **主區**:標頭(麵包屑、案名、tags、進階開關、整體健康度儀表 + 近 6 週趨勢柱)、
+  HUD 讀數條、**橫向流水線**(每個分工層一欄)。
+- **每一欄**:步驟標、狀態、健康度進度條、已掛能力、執行模型(Claude/GPT/Gemini)、
+  主要任務、完成結果(可審核)、建議卡;推廣層另有社群通路與帳號辦理。
+- **對話框**:產出審核、高風險採用確認。
+
+後端首次啟動會 seed 一組示範案子(記帳 app、家庭帳本 v2…),看板一開就有資料。
+
 ## 主要 API
 
 | 方法 | 路徑 | 說明 |
 |---|---|---|
+| GET | `/api/overview` | 左欄 + HUD:全部案子摘要、分類、系統讀數 |
 | POST | `/api/projects` | 建立案子(依 type 產模組 + 靜態配對建議) |
-| GET | `/api/projects/{id}/board` | 看板視圖(模組 + 建議卡) |
-| POST | `/api/suggestions/{id}/adopt` | 採用建議(掛 skill、連動 skip 衝突) |
+| GET | `/api/projects/{id}/board` | 看板視圖(模組 + 建議卡 + 產出 + 帳號) |
+| POST | `/api/suggestions/{id}/adopt` | 採用建議(掛 skill、連動 skip 衝突、提升健康度) |
 | POST | `/api/suggestions/{id}/skip` | 略過建議(保留出口) |
 | POST | `/api/modules/{id}/score` | 回報健康度(必要時動態觸發建議) |
+| POST | `/api/modules/{id}/model` | 設定該層執行模型 |
+| POST | `/api/modules/{id}/task` | 設定該層主要任務與備註 |
+| POST | `/api/modules/{id}/channels` | 開/關一個社群通路(推廣層) |
+| POST | `/api/accounts/{id}/apply` | 開始辦理某通路帳號 |
+| POST | `/api/outputs/{id}/review` | 核可 / 退回一筆產出 |
 
 ## 設計鐵則
 

@@ -23,6 +23,10 @@ class Project(SQLModel, table=True):
     type: str                       # 案子類型,例:accounting_app
     tags: str = "[]"                # JSON list,靜態配對用
     status: str = "building"        # building | optimizing
+    category: str = ""              # 對外分類顯示名,例:記帳工具
+    cat_key: str = "other"          # 分類鍵,左欄篩選用
+    stage: str = "dev"              # dev(開發階段)| maintain(優化階段)
+    trend: str = "[]"               # JSON list[int],近 6 週健康度軌跡
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -37,6 +41,9 @@ class Module(SQLModel, table=True):
     status: str = "not_started"     # not_started | active | resting | needs_attention
     score: int = 0                  # 健康度 0–100
     threshold: int = 80             # 低於此值觸發建議
+    model_key: str = ""             # 執行模型:claude | gpt | gemini(空 → 用該層預設)
+    task: str = ""                  # 本輪主要任務
+    task_note: str = ""             # 任務備註
 
 
 class Skill(SQLModel, table=True):
@@ -77,6 +84,7 @@ class Suggestion(SQLModel, table=True):
     source: str                     # static_match | score_trigger | pipeline_ticket
     reason: str                     # 白話原因,連使用者情境
     predicted_effect: str = ""      # 例:資安 58 → 預估 85
+    predicted_score: int | None = None  # 採用後預估分數(None → 用預設增幅)
     conflict_group: str | None = None
     status: str = "pending"         # pending | adopted | skipped
     created_at: datetime = Field(default_factory=_now)
@@ -90,3 +98,27 @@ class ScoreEvent(SQLModel, table=True):
     value: int
     signal_speed: str               # internal | external
     recorded_at: datetime = Field(default_factory=_now)
+
+
+class Output(SQLModel, table=True):
+    """某模組跑完一輪任務的完成結果,供使用者審核。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    module_id: int = Field(foreign_key="module.id", index=True)
+    title: str
+    state: str = "done"             # done | review | running | rejected
+    by: str = ""                    # 產出的執行模型名,例:Claude
+    when_label: str = ""            # 顯示用日期,例:8/30
+    items: str = "[]"               # JSON list[str],條列摘要
+    order_index: int = 0
+    created_at: datetime = Field(default_factory=_now)
+
+
+class SocialAccount(SQLModel, table=True):
+    """推廣層的社群通路與帳號辦理狀態。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    module_id: int = Field(foreign_key="module.id", index=True)
+    channel: str                    # Instagram / Threads / …
+    state: str = "none"             # none(未辦理)| applying(辦理中)| ready(已開通)
+    handle: str = "—"

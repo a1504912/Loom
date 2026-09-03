@@ -10,16 +10,43 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+# --------------------------------------------------------------------------- #
+# 請求                                                                          #
+# --------------------------------------------------------------------------- #
+
 class CreateProjectRequest(BaseModel):
     name: str
     type: str
     tags: list[str] = Field(default_factory=list)
+    category: str = ""
+    cat_key: str = "other"
 
 
 class UpdateScoreRequest(BaseModel):
     value: int
     speed: str = "internal"  # internal | external
 
+
+class SetModelRequest(BaseModel):
+    model_key: str  # claude | gpt | gemini
+
+
+class SetTaskRequest(BaseModel):
+    task: str = ""
+    task_note: str | None = None
+
+
+class ReviewOutputRequest(BaseModel):
+    decision: str  # approve | reject
+
+
+class ToggleChannelRequest(BaseModel):
+    channel: str
+
+
+# --------------------------------------------------------------------------- #
+# 回應                                                                          #
+# --------------------------------------------------------------------------- #
 
 class SuggestionCard(BaseModel):
     id: int
@@ -35,6 +62,22 @@ class SuggestionCard(BaseModel):
     status: str
 
 
+class OutputView(BaseModel):
+    id: int
+    title: str
+    state: str               # done | review | running | rejected
+    by: str
+    when: str
+    items: list[str]
+
+
+class AccountView(BaseModel):
+    id: int
+    channel: str
+    state: str               # none | applying | ready
+    handle: str
+
+
 class ModuleView(BaseModel):
     id: int
     name: str
@@ -43,8 +86,13 @@ class ModuleView(BaseModel):
     status: str
     score: int
     threshold: int
+    model_key: str
+    task: str
+    task_note: str
     mounted_skills: list[str]
     open_suggestions: list[SuggestionCard]
+    outputs: list[OutputView]
+    accounts: list[AccountView]
 
 
 class BoardView(BaseModel):
@@ -52,5 +100,40 @@ class BoardView(BaseModel):
     project_name: str
     project_type: str
     project_status: str
+    category: str
+    cat_key: str
+    stage: str
     tags: list[str]
+    trend: list[int]
+    health: int
     modules: list[ModuleView]
+
+
+class CategoryView(BaseModel):
+    key: str
+    name: str
+    count: int
+
+
+class ProjectSummary(BaseModel):
+    id: int
+    name: str
+    category: str
+    cat_key: str
+    type: str
+    stage: str
+    tags: list[str]
+    health: int
+    alerts: int
+
+
+class HudView(BaseModel):
+    project_count: int
+    avg_health: int
+    pending: int
+
+
+class OverviewView(BaseModel):
+    categories: list[CategoryView]
+    projects: list[ProjectSummary]
+    hud: HudView

@@ -1,7 +1,12 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Industry design system(tokens + 元件層)是這個看板的樣式來源。 */
+@import "./industry.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
 
 body {
-  @apply bg-slate-50 text-slate-800;
+  margin: 0;
 }
